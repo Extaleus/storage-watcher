@@ -10,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -100,7 +102,10 @@ func main() {
 					fmt.Println()
 					fmt.Println(inputPath.Text)
 					fmt.Println()
+					start := time.Now()
 					err := findAndRemoveDuplicates(inputPath.Text)
+					elapsed := time.Since(start)
+					fmt.Printf("Время выполнения: %s\n", elapsed)
 					if err != nil {
 						fmt.Printf("Error: %v\n", err)
 					} else {
@@ -156,69 +161,72 @@ func createFilterButtons(isPng, isJpeg, isWebp, isSvg *bool) *fyne.Container {
 }
 
 func findAndRemoveDuplicates(dirPath string) error {
-	// Вычисляем максимальное количество горутин
-	maxGoroutines := runtime.NumCPU() * 2
-	semaphore := make(chan struct{}, maxGoroutines) // Семафор для ограничения горутин
+	maxGoroutines := runtime.NumCPU()
+	fileChan := make(chan string, maxGoroutines*10)
+	hashGroups := make(map[string][]string)
+	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	// Используем sync.Map для хранения групп файлов по их хешам
-	var hashGroups sync.Map
+	// Запускаем пул воркеров для вычисления хешей
+	for i := 0; i < maxGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range fileChan {
+				hash, err := calculateFileHash(path)
+				if err != nil {
+					fmt.Printf("Error calculating hash for %s: %v\n", path, err)
+					continue
+				}
+
+				// Блокируем доступ к map для безопасной записи
+				mu.Lock()
+				hashGroups[hash] = append(hashGroups[hash], path)
+				mu.Unlock()
+			}
+		}()
+	}
 
 	// Проходим по всем файлам в указанной папке
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-
-		// Проверяем, что это файл (не папка) и его расширение подходит
 		if !info.IsDir() && isImageFile(path) {
-			wg.Add(1)
-			semaphore <- struct{}{} // Занимаем слот в семафоре
-
-			go func(p string) {
-				defer wg.Done()
-				defer func() { <-semaphore }() // Освобождаем слот в семафоре
-
-				// Вычисляем хеш файла
-				fileHash, err := calculateFileHash(p)
-				if err != nil {
-					fmt.Printf("Error calculating hash for %s: %v\n", p, err)
-					return
-				}
-
-				// Добавляем файл в соответствующую группу
-				value, _ := hashGroups.LoadOrStore(fileHash, []string{})
-				files := value.([]string)
-				files = append(files, p)
-				hashGroups.Store(fileHash, files)
-			}(path)
+			fileChan <- path
 		}
-
 		return nil
 	})
+
+	close(fileChan) // Закрываем канал после завершения обхода файлов
+	wg.Wait()       // Ждем завершения всех горутин
 
 	if err != nil {
 		return err
 	}
 
-	// Ждем завершения всех горутин
-	wg.Wait()
-
 	// Удаляем дубликаты
-	hashGroups.Range(func(key, value interface{}) bool {
-		files := value.([]string)
+	for _, files := range hashGroups {
 		if len(files) > 1 {
+			// Сортируем файлы для детерминированного удаления
+			sort.Strings(files)
+
 			// Оставляем первый файл, остальные удаляем
 			for i := 1; i < len(files); i++ {
-				fmt.Printf("Removing duplicate: %s (duplicate of %s)\n", files[i], files[0])
-				err := os.Remove(files[i])
-				if err != nil {
-					fmt.Printf("Error removing file %s: %v\n", files[i], err)
+				if _, err := os.Stat(files[i]); err == nil {
+					// fmt.Printf("Removing duplicate: %s (duplicate of %s)\n", files[i], files[0])
+					err := os.Remove(files[i])
+					if err != nil {
+						fmt.Printf("Error removing file %s: %v\n", files[i], err)
+					}
+				} else if os.IsNotExist(err) {
+					fmt.Printf("File %s does not exist, skipping...\n", files[i])
+				} else {
+					fmt.Printf("Error checking file %s: %v\n", files[i], err)
 				}
 			}
 		}
-		return true
-	})
+	}
 
 	return nil
 }
