@@ -26,33 +26,39 @@ func main() {
 
 	typesFilterValues := []bool{false, false, false, false}
 
-	inputPath := widget.NewEntry()
-	inputPath.SetText("C:/Users/extaleus/Downloads/tests")
-	inputPath.SetPlaceHolder("Input directory")
-	selectInputPathBtn := widget.NewButton("Select directory", func() {
+	sourceDir := widget.NewEntry()
+	sourceDir.SetText("C:/Users/extaleus/Downloads/tests")
+	sourceDir.SetPlaceHolder("Путь к исходной папке")
+	buttonSelectSourceDir := widget.NewButton("Выбрать папку", func() {
 		dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err == nil && uri != nil {
-				inputPath.SetText(uri.Path())
+				sourceDir.SetText(uri.Path())
 			}
 		}, mainW).Show()
 	})
 
-	outputPath := widget.NewEntry()
-	outputPath.SetText("C:/Users/extaleus/Downloads/images")
-	outputPath.SetPlaceHolder("Output directory")
-	selectOutputPathBtn := widget.NewButton("Select directory", func() {
+	destinationDir := widget.NewEntry()
+	destinationDir.SetText("C:/Users/extaleus/Downloads/tests_copy")
+	destinationDir.SetPlaceHolder("Путь к папке назначения")
+	buttonSelectDestinationDir := widget.NewButton("Выбрать папку", func() {
 		dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err == nil && uri != nil {
-				outputPath.SetText(uri.Path())
+				destinationDir.SetText(uri.Path())
 			}
 		}, mainW).Show()
+	})
+
+	buttonSwitchDirs := widget.NewButton("Swap dirs", func() {
+		tempDir := destinationDir.Text
+		destinationDir.SetText(sourceDir.Text)
+		sourceDir.SetText(tempDir)
 	})
 
 	filenamesFilter := widget.NewEntry()
-	filenamesFilter.SetPlaceHolder("Filter: \"lilies\", \"romashki\"")
+	filenamesFilter.SetPlaceHolder("Фильтрация по имени (или части) в виде: \"лилия\", \"помидор\".")
 
 	var logBuilder strings.Builder
-	logBuilder.WriteString(" Empty")
+	logBuilder.WriteString(" Пусто")
 	logContainer := widget.NewTextGridFromString(logBuilder.String())
 
 	// Функция для обновления logContainer
@@ -62,17 +68,17 @@ func main() {
 			logBuilder.WriteString(" " + line + "\n")
 		}
 		if len(logData) == 0 {
-			logBuilder.WriteString(" Nothing was deleted")
+			logBuilder.WriteString(" Ничего не произошло")
 		}
 		logContainer.SetText(logBuilder.String())
 	}
 
 	scrollContainer := container.NewScroll(logContainer)
-	InputPathBox := container.NewVBox(inputPath, outputPath)
-	OutputPathBox := container.NewVBox(selectInputPathBtn, selectOutputPathBtn)
+	InputPathBox := container.NewVBox(sourceDir, destinationDir)
+	OutputPathBox := container.NewVBox(buttonSelectSourceDir, buttonSelectDestinationDir)
 	typesFilter := createFilterButtons(typesFilterValues)
 
-	executionTimeLabel := widget.NewLabel("Execution time: 0.00 sec.")
+	executionTimeLabel := widget.NewLabel("Время выполнения: 0.00 сек.")
 
 	pathsContent := container.NewBorder(
 		nil, createColoredSeparator(), nil, OutputPathBox,
@@ -100,15 +106,16 @@ func main() {
 			createColoredSeparator(),
 			container.NewHBox(
 				layout.NewSpacer(),
-				widget.NewButton("Remove duplicates", func() {
+				buttonSwitchDirs,
+				layout.NewSpacer(),
+				widget.NewButton("Удалить дубликаты", func() {
 					start := time.Now()
-					logData, err := utils.FindAndRemoveDuplicates(inputPath.Text, typesFilterValues)
+					logData, err := utils.FindAndRemoveDuplicates(sourceDir.Text, typesFilterValues)
 					elapsed := time.Since(start)
-					// Форматируем время в секунды и миллисекунды
 					seconds := elapsed.Seconds()
+					executionTimeLabel.SetText(fmt.Sprintf("Время выполнения: %.2f сек.", seconds))
 
 					updateLogContainer(logData)
-					executionTimeLabel.SetText(fmt.Sprintf("Execution time: %.2f sec.", seconds))
 
 					if err != nil {
 						fmt.Printf("Error: %v\n", err)
@@ -117,8 +124,20 @@ func main() {
 					}
 				}),
 				layout.NewSpacer(),
-				widget.NewButton("Move all files", func() {
-					utils.MoveAllFiles(inputPath.Text, outputPath.Text, typesFilterValues)
+				widget.NewButton("Переместить все файлы", func() {
+					start := time.Now()
+					logData, err := utils.MoveAllImageFiles(sourceDir.Text, destinationDir.Text, typesFilterValues)
+					elapsed := time.Since(start)
+					seconds := elapsed.Seconds()
+					executionTimeLabel.SetText(fmt.Sprintf("Время выполнения: %.2f сек.", seconds))
+
+					updateLogContainer(logData)
+
+					if err != nil {
+						fmt.Printf("Error: %v\n", err)
+					} else {
+						fmt.Println("Файлы перемещены успешно")
+					}
 				}),
 				layout.NewSpacer(),
 			),
@@ -136,7 +155,7 @@ func main() {
 					createColoredSeparator(),
 					nil,
 					nil,
-					container.NewHBox(widget.NewLabel("Log:"), layout.NewSpacer(), createColoredSeparator(), executionTimeLabel),
+					container.NewHBox(widget.NewLabel("Отчёт о выполнении:"), layout.NewSpacer(), createColoredSeparator(), executionTimeLabel),
 				),
 				nil,
 				nil,
@@ -158,7 +177,7 @@ func createColoredSeparator() fyne.CanvasObject {
 // createFilterButtons создает компонент с кнопками фильтров
 func createFilterButtons(typesFilterValues []bool) *fyne.Container {
 	return container.NewHBox(
-		widget.NewLabel("Select the file extensions to scan:"),
+		widget.NewLabel("Выберите расширения файлов для взаимодействия:"),
 		widget.NewCheck(".png", func(b bool) { typesFilterValues[0] = b }),
 		widget.NewCheck(".jpeg", func(b bool) { typesFilterValues[1] = b }),
 		widget.NewCheck(".webp", func(b bool) { typesFilterValues[2] = b }),

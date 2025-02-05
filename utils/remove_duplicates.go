@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -113,13 +114,7 @@ func calculateFileHash(filePath string) (string, error) {
 
 // isImageFile проверяет, имеет ли файл допустимое расширение
 func isImageFile(path string, typesFilterValues []bool) bool {
-	ext := filepath.Ext(path)
-	// switch ext {
-	// case ".png", ".jpeg", ".jpg", ".svg", ".webp":
-	// 	return true
-	// default:
-	// 	return false
-	// }
+	ext := strings.ToLower(filepath.Ext(path))
 	allowedExtensions := createAllowedExtensions(typesFilterValues)
 	for _, allowedExt := range allowedExtensions {
 		if ext == allowedExt {
